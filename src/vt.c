@@ -533,16 +533,20 @@ static void csi(uint8_t c) {
     vt_x = n > vt_x ? 0 : vt_x - n;
     wrapnext = 0;
     break;
-  case 'E':
+  case 'E': {
+    uint8_t lim = vt_y <= bot ? bot : VT_ROWS - 1;
     vt_x = 0;
-    vt_y = n > bot - vt_y ? bot : vt_y + n;
+    vt_y = n > lim - vt_y ? lim : vt_y + n;
     wrapnext = 0;
     break;
-  case 'F':
+  }
+  case 'F': {
+    uint8_t lim = vt_y >= top ? top : 0;
     vt_x = 0;
-    vt_y = n > vt_y - top ? top : vt_y - n;
+    vt_y = n > vt_y - lim ? lim : vt_y - n;
     wrapnext = 0;
     break;
+  }
   case 'G':
   case '`':
     goto_xy(n - 1, om ? vt_y - top : vt_y);
