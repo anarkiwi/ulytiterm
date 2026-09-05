@@ -5,6 +5,7 @@
 
 #include "hist.h"
 #include "kbd.h"
+#include "net.h"
 #include "reu.h"
 #include "screen.h"
 #include "telnet.h"
@@ -18,15 +19,16 @@
 #define READ_CHUNK 892
 #define HOST_MAX 48
 
-static int16_t sock = -1;
+static uint8_t connected;
 static char host[HOST_MAX] = "bbs.fozztexx.com";
 static char portstr[6] = "23";
 static uint8_t txbuf[64];
 static uint8_t netinfo[UII_IPCONFIG_LEN];
+static uint8_t haveip;
 
 static void raw_send(const uint8_t *p, uint16_t n) {
-  if (sock >= 0)
-    uii_write(sock, p, n);
+  if (connected)
+    net->write(p, n);
 }
 
 static void send_user(const uint8_t *p, uint16_t n) {
@@ -41,19 +43,23 @@ static void send_user(const uint8_t *p, uint16_t n) {
 static const char *preflight(void) {
   const uint8_t *ip;
 
-  if (!uii_present())
-    return "ULTIMATE COMMAND INTERFACE NOT FOUND.\r"
-           "ENABLE IT UNDER THE CARTRIDGE SETTINGS.";
+  if (!net_init())
+    return "NO NETWORK INTERFACE FOUND.\r"
+           "ENABLE THE ULTIMATE COMMAND INTERFACE,\r"
+           "OR FIT A SWIFTLINK OR TURBO232.";
   if (!reu_banks)
     return "NO REU FOUND.\r"
            "ENABLE THE RAM EXPANSION UNDER THE\rCARTRIDGE SETTINGS.";
-  ip = uii_ipconfig();
+  if (!net->ipconfig)
+    return 0; /* a modem line has no address of its own */
+  ip = net->ipconfig();
   if (!ip)
     return "THE CARTRIDGE REPORTED NO NETWORK\rCONFIGURATION.";
   memcpy(netinfo, ip, sizeof(netinfo));
   if (!netinfo[0])
     return "NO IP ADDRESS.\r"
            "CHECK THE NETWORK CABLE AND DHCP.";
+  haveip = 1;
   return 0;
 }
 
@@ -123,7 +129,10 @@ static uint8_t connect_screen(void) {
   uint8_t i;
 
   vt_puts("\033[2J\033[H\033[7m ulytiterm " VERSION " \033[m\r\n\r\n");
-  for (i = 0; i < UII_IPCONFIG_LEN; i++) {
+  vt_puts("device  ");
+  vt_puts(net->name);
+  vt_puts("\r\n");
+  for (i = 0; haveip && i < UII_IPCONFIG_LEN; i++) {
     if (!(i & 3))
       vt_puts(label[i >> 2]);
     ui_num(netinfo[i]);
@@ -153,7 +162,7 @@ static void session(void) {
   while (!quit) {
     uint8_t *p;
     uint8_t txn = 0;
-    int16_t n = uii_read(sock, &p, READ_CHUNK);
+    int16_t n = net->read(&p, READ_CHUNK);
 
     if (n < 0)
       break;
@@ -211,18 +220,18 @@ int main(void) {
   while (connect_screen()) {
     vt_puts("\r\nconnecting...\r\n");
     scr_flush();
-    sock = uii_connect(host, parse_port());
-    if (sock < 0) {
+    connected = net->open(host, parse_port()) == 0;
+    if (!connected) {
       vt_puts("\033[31mfailed: \033[m");
-      vt_puts(uii_status);
+      vt_puts(net->status());
       vt_puts("\r\npress return\r\n");
       ui_key();
       continue;
     }
     vt_reset();
     session();
-    uii_close(sock);
-    sock = -1;
+    net->close();
+    connected = 0;
     vt_puts("\r\n\033[7mconnection closed\033[m, press return\r\n");
     ui_key();
   }
