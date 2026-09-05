@@ -8,12 +8,13 @@ whole module and the tests run in order, each leaving the state the next wants.
 from __future__ import annotations
 
 import os
+import struct
 import subprocess
 import time
 
 import pytest
 from vice_driver import BinMon, BinmonError, DiskMount, ViceContainer
-from vice_driver.binmon import TAP_MODE_FIXED
+from vice_driver.binmon import CHECK_LOAD, MEMSPACE_MAIN, OPCODE, TAP_MODE_FIXED
 from vice_driver.keys import chord_to_keys, text_to_chords
 
 import screen as scr
@@ -26,6 +27,9 @@ BINMON_PORT = 6502
 GATEWAY_FALLBACK = "172.17.0.1"
 BOOT_TIMEOUT = 120.0
 TAP_FRAMES = 4  # long enough for a KERNAL scan, short of the repeat delay
+
+# The 6551's data register: acia.c's REG_DATA, at the ACIA base ($de00).
+ACIA_DATA = 0xDE00
 
 DIAL = b"ATDTbbs.fozztexx.com:23\r"
 
@@ -83,6 +87,7 @@ class Term:
     def __init__(self, bm: BinMon, server: FakeServer) -> None:
         self.bm = bm
         self.server = server
+        self._acia_checknum: int | None = None
 
     def screen(self) -> scr.Screen:
         return scr.read(self.bm)
@@ -112,8 +117,38 @@ class Term:
         for chord in text_to_chords(text):
             self.key(*chord)
 
+    def _acia_checkpoint(self) -> int:
+        """A CHECK_LOAD breakpoint on the ACIA data register, created once and
+        reused: it halts the CPU the instant acia_read() consumes a received
+        byte, giving a real event to pace sends on."""
+        if self._acia_checknum is None:
+            body = struct.pack("<HHBBBBB", ACIA_DATA, ACIA_DATA, 1, 0, CHECK_LOAD, 0, MEMSPACE_MAIN)
+            resp = self.bm.call(OPCODE.CHECKPOINT_SET, body)
+            self._acia_checknum = struct.unpack("<I", resp.body[:4])[0]
+        return self._acia_checknum
+
+    def _toggle_acia_checkpoint(self, enabled: bool) -> None:
+        self.bm.call(
+            OPCODE.CHECKPOINT_TOGGLE,
+            struct.pack("<IB", self._acia_checkpoint(), 1 if enabled else 0),
+            require_ok=False,
+        )
+
     def send(self, data: bytes) -> None:
-        self.server.send(data)
+        """Feed bytes to the emulated ACIA one at a time, each gated on the
+        CPU actually consuming the previous one. VICE's rs232 network device
+        silently drops received bytes that outrun the CPU's own drain rate,
+        which a burst over a local TCP loopback easily does; pacing on the
+        real consumption event (rather than a guessed delay) is exact
+        regardless of host speed."""
+        checknum = self._acia_checkpoint()
+        self._toggle_acia_checkpoint(True)
+        try:
+            for byte in data:
+                self.server.send(bytes([byte]))
+                self.bm.wait_for_checkpoint(checknum)
+        finally:
+            self._toggle_acia_checkpoint(False)
 
 
 @pytest.fixture(scope="module")
@@ -244,7 +279,10 @@ def test_scrollback(term):
     live = term.screen()
     scrolled = "line %d" % (40 - (scr.ROWS - 1))
     term.key("F5")
-    back = term.wait_screen(lambda s: s.row(0).startswith(scrolled), "the scrolled off line")
+    back = term.wait_screen(
+        lambda s: s.row(0).startswith(scrolled) and s.row(scr.ROWS - 1).startswith("scrollback"),
+        "the scrolled off line and its status row",
+    )
     assert back.row(scr.ROWS - 1).startswith("scrollback")
     assert all(back.code(scr.ROWS - 1, c) & 0x80 for c in range(10))
     term.key("CRSRUD")

@@ -13,8 +13,6 @@ import threading
 import time
 
 ACCEPT_POLL = 0.2
-SEND_CHUNK = 32  # bytes per write; the 6551 has no receive FIFO
-SEND_DELAY = 0.02  # pause between chunks, so the terminal keeps up
 
 
 class FakeServer:
@@ -99,12 +97,11 @@ class FakeServer:
 
     # ---- scripted output ------------------------------------------------
 
-    def send(self, data: bytes, chunk: int = SEND_CHUNK, delay: float = SEND_DELAY) -> None:
-        conn = self._wait_conn()
-        for i in range(0, len(data), chunk):
-            conn.sendall(data[i : i + chunk])
-            if delay:
-                time.sleep(delay)
+    def send(self, data: bytes) -> None:
+        """Write straight to the socket. Pacing so the emulated ACIA doesn't
+        drop bytes is the caller's job -- see Term.send, which paces on the
+        CPU's own consumption of each byte."""
+        self._wait_conn().sendall(data)
 
     def _wait_conn(self, timeout: float = 20.0) -> socket.socket:
         deadline = time.monotonic() + timeout
