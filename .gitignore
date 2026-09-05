@@ -5,4 +5,6 @@
 *.o
 *.map
 tests/run
+__pycache__/
+.pytest_cache/
 *~
