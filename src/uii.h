@@ -17,7 +17,9 @@ extern char uii_status[64];
 uint8_t uii_present(void);
 uint8_t uii_ok(void);
 
-/* Returns 16 bytes: ip, netmask, gateway, dns (4 each), or 0 on failure. */
+/* Returns the network configuration, address then netmask then gateway, four
+ * bytes each, or 0 on failure. */
+#define UII_IPCONFIG_LEN 12
 const uint8_t *uii_ipconfig(void);
 
 /* Socket id (>= 0) or -1. */

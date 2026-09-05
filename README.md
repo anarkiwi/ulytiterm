@@ -1,11 +1,13 @@
 # ulytiterm
 
 VT102/ANSI terminal for the Commodore 64, using the network interface of the
-Ultimate II+ or Ultimate 64 cartridge. The cartridge is required: it provides
-the TCP sockets, and its REU provides DMA screen scrolling and scrollback.
+Ultimate II+ or Ultimate 64 cartridge. The cartridge provides the TCP sockets,
+and its REU provides DMA screen scrolling and scrollback; both are required.
 
-Enable *Command Interface* (and the REU, for scrollback) in the cartridge
-settings.
+Enable *Command Interface* and the RAM expansion in the cartridge settings.
+Startup checks for both, and for a network configuration, and exits to BASIC
+with a message saying what to enable if anything is missing. The cartridge's
+address, netmask and gateway are shown before the host prompt.
 
 ## Build
 
@@ -20,7 +22,10 @@ images. Set `MOS_CC` or `C1541` to use host installs instead.
 ## Use
 
 Run it, enter a host and port, and press return. Telnet is detected
-automatically; anything else is treated as a raw stream.
+automatically; anything else is treated as a raw stream. On a telnet
+connection the terminal announces its type and its window size without being
+asked, so a server learns the screen is 40 columns wide even if it never
+negotiates; the size is sent again when f8 switches to 80.
 
 | key | action |
 | --- | --- |

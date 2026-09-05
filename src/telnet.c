@@ -1,6 +1,9 @@
-/* See telnet.h. Options we care about are tracked so that a repeated request
- * is answered only when it changes our state, which avoids negotiation
- * loops; everything else is refused. */
+/* See telnet.h. Terminal type and window size are announced as soon as the
+ * peer shows itself to be a telnet server, so that one which never asks still
+ * learns the terminal is 40 columns wide. Options are tracked so that a
+ * repeated request is answered only when it changes our state, and so that
+ * the peer's answer to an announcement is not answered in turn; everything
+ * else is refused. */
 #include "telnet.h"
 
 #define SE 240
@@ -30,8 +33,10 @@ static void (*tx)(const uint8_t *, uint16_t);
 static uint8_t automode, state, verb, screencols;
 #define ST_US_ON 1
 #define ST_US_ANS 2
+#define ST_US_WAIT 16 /* we announced and have not heard back */
 #define ST_HIM_ON 4
 #define ST_HIM_ANS 8
+#define ST_HIM_WAIT 32
 
 static uint8_t opt_state[5];
 
@@ -89,7 +94,7 @@ static void send_ttype(void) {
 
 static void negotiate(uint8_t v, uint8_t opt) {
   int8_t i = slot(opt);
-  uint8_t on, bit;
+  uint8_t on;
 
   if (i < 0) {
     if (v == WILL)
@@ -100,23 +105,41 @@ static void negotiate(uint8_t v, uint8_t opt) {
   }
   if (v == DO || v == DONT) {
     on = v == DO && agree_us[i];
-    /* Our side of the option: answer the first request, then only changes. */
-    bit = (state_us(i) == on) && answered(i, ST_US_ANS);
-    if (bit)
-      return;
-    set_state(i, ST_US_ANS | (on ? ST_US_ON : 0), ST_US_ANS | ST_US_ON);
-    send3(on ? WILL : WONT, opt);
-    if (on && opt == OPT_NAWS)
-      send_naws();
+    if (answered(i, ST_US_WAIT)) {
+      on = v == DO; /* the answer to an announcement, which needs no reply */
+      set_state(i, ST_US_ANS | (on ? ST_US_ON : 0),
+                ST_US_WAIT | ST_US_ANS | ST_US_ON);
+    } else if (!(answered(i, ST_US_ANS) && state_us(i) == on)) {
+      set_state(i, ST_US_ANS | (on ? ST_US_ON : 0), ST_US_ANS | ST_US_ON);
+      send3(on ? WILL : WONT, opt);
+    }
     if (opt == OPT_BINARY)
       tn_binary_tx = on;
+    if (on && opt == OPT_NAWS)
+      send_naws();
   } else {
     on = v == WILL && agree_him[i];
-    bit = (state_him(i) == on) && answered(i, ST_HIM_ANS);
-    if (bit)
-      return;
-    set_state(i, ST_HIM_ANS | (on ? ST_HIM_ON : 0), ST_HIM_ANS | ST_HIM_ON);
-    send3(on ? DO : DONT, opt);
+    if (answered(i, ST_HIM_WAIT)) {
+      on = v == WILL;
+      set_state(i, ST_HIM_ANS | (on ? ST_HIM_ON : 0),
+                ST_HIM_WAIT | ST_HIM_ANS | ST_HIM_ON);
+    } else if (!(answered(i, ST_HIM_ANS) && state_him(i) == on)) {
+      set_state(i, ST_HIM_ANS | (on ? ST_HIM_ON : 0), ST_HIM_ANS | ST_HIM_ON);
+      send3(on ? DO : DONT, opt);
+    }
+  }
+}
+
+/* Offered without being asked. The window size only follows once the peer
+ * agrees, so the terminal type goes with it: between them a server has both
+ * of the usual ways to learn the screen is 40 columns. */
+static void announce(void) {
+  static const uint8_t ours[2] = {OPT_TTYPE, OPT_NAWS};
+  uint8_t i;
+
+  for (i = 0; i < sizeof(ours); i++) {
+    set_state(slot(ours[i]), ST_US_WAIT, ST_US_WAIT);
+    send3(WILL, ours[i]);
   }
 }
 
@@ -141,6 +164,8 @@ void tn_init(void (*send)(const uint8_t *, uint16_t), uint8_t mode,
   state = D_DATA;
   for (i = 0; i < sizeof(opt_state); i++)
     opt_state[i] = 0;
+  if (tn_active)
+    announce();
 }
 
 void tn_resize(uint8_t cols) {
@@ -158,6 +183,7 @@ uint16_t tn_filter(uint8_t *buf, uint16_t n) {
     if (!automode || !n || buf[0] != IAC)
       return n;
     tn_active = 1;
+    announce();
   }
   for (i = 0; i < n; i++) {
     uint8_t c = buf[i];
