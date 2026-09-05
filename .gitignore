@@ -1,0 +1,8 @@
+*.prg
+*.d64
+*.crt
+*.elf
+*.o
+*.map
+tests/run
+*~

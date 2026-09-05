@@ -1,0 +1,54 @@
+# ulytiterm
+
+VT102/ANSI terminal for the Commodore 64, using the network interface of the
+Ultimate II+ or Ultimate 64 cartridge. The cartridge is required: it provides
+the TCP sockets, and its REU provides DMA screen scrolling and scrollback.
+
+Enable *Command Interface* (and the REU, for scrollback) in the cartridge
+settings.
+
+## Build
+
+`make` builds `ulytiterm.prg` and `ulytiterm.d64`. The only build dependency is
+a container runtime: the
+[llvm-mos SDK](https://github.com/anarkiwi/docker-mos-llvm-sdk) and `c1541`
+(from [asid-vice](https://github.com/anarkiwi/asid-vice)) run from pinned
+images. Set `MOS_CC` or `C1541` to use host installs instead.
+
+`make test` runs the terminal, telnet and keyboard unit tests on the host.
+
+## Use
+
+Run it, enter a host and port, and press return. Telnet is detected
+automatically; anything else is treated as a raw stream.
+
+| key | action |
+| --- | --- |
+| f1 - f4 | PF1 - PF4 (`ESC O P` - `ESC O S`) |
+| f5 | scrollback (cursor keys to move, any other key exits) |
+| f6 | `ESC [ 17 ~` |
+| f7 | disconnect |
+| f8 | switch between 40 and 80 columns |
+| left arrow | escape |
+| pound | backslash |
+| up arrow | caret, shifted: tilde |
+| ctrl + key | control codes |
+| C= B, N, P, Q, U | `{`, `}`, `|`, `` ` ``, `_` |
+
+In 80 column mode the 40 column screen is a window that follows the cursor.
+
+## Emulation
+
+VT102 with the common ANSI extensions: scrolling regions, origin mode,
+insert/delete line and character, erase display/line/character, tab stops,
+autowrap with deferred wrap, save/restore cursor, DECALN, device attributes,
+cursor position reports, application cursor keys, DEC special graphics and
+16 colour SGR (including the aixterm bright colours and 256 colour requests,
+mapped onto the C64 palette). Cell backgrounds are rendered as reverse video,
+which is what the VIC-II offers.
+
+The character generator is copied to RAM with the glyphs the C64 font lacks
+(`\`, `{`, `}`, `~`, `^`, `` ` ``, and the DEC graphics extras) added.
+
+See [docs/design.md](docs/design.md) for the internals and
+[docs/ultimate.md](docs/ultimate.md) for the cartridge interface.
