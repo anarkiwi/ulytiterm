@@ -21,14 +21,17 @@
 static uint8_t rxbuf[192];
 
 /* The control register reads back what was written, which open bus does not.
- */
+ * Two values are tried, each read back after an intervening read of another
+ * register, so that a bus which merely echoes the last value cannot pass. */
+static uint8_t holds(uint8_t value) {
+  ACIA[REG_CONTROL] = value;
+  (void)ACIA[REG_STATUS];
+  return ACIA[REG_CONTROL] == value;
+}
+
 uint8_t acia_probe(void) {
   ACIA[REG_STATUS] = 0;
-  ACIA[REG_CONTROL] = CONTROL;
-  if (ACIA[REG_CONTROL] != CONTROL)
-    return 0;
-  ACIA[REG_CONTROL] = CONTROL_PROBE;
-  if (ACIA[REG_CONTROL] != CONTROL_PROBE)
+  if (!holds(CONTROL) || !holds(CONTROL_PROBE))
     return 0;
   ACIA[REG_CONTROL] = CONTROL;
   ACIA[REG_COMMAND] = COMMAND;
