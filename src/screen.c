@@ -24,9 +24,9 @@
 #define SCREEN MEM_SCREEN
 #define COLRAM ((uint8_t *)0xd800)
 #define CHARROM ((const uint8_t *)0xd800) /* lower case set, I/O banked out */
-/* The VIC sees a character ROM image at $9000 in bank 2; the lower case set
- * is the second half of it. */
-#define ROMFONT 0x9800
+#define NMI_VECTOR (*(volatile uint16_t *)0x0318)
+/* Screen codes $80 and up are the reversed glyphs, one kilobyte on. */
+#define REVERSED 0x400
 
 #define FONT_SIZE 2048
 
@@ -35,6 +35,7 @@ uint8_t scr_pan;
 static uint8_t *srow[VT_ROWS];
 static uint8_t *crow[VT_ROWS];
 static uint8_t curdrawn = 0xff;
+static uint8_t shflag;
 static uint8_t colorpainted;
 static uint8_t bellend;
 
@@ -58,29 +59,41 @@ static const uint8_t glyphs[] = {
 static uint8_t scr_scroll(uint8_t t, uint8_t b, int8_t n);
 static void paint(uint8_t cursor);
 
-/* Copies the character generator into RAM and adds the missing glyphs.
- * Returns 0 if the copy did not take, so that the caller can fall back to the
- * character ROM image the VIC sees in this bank. */
-static uint8_t font_setup(void) {
+/* The character ROM replaces I/O while it is being copied, so the KERNAL NMI
+ * handler must not run: it reads CIA 2. RESTORE is edge triggered and needs no
+ * acknowledgement, so ignoring it outright is enough. */
+__attribute__((interrupt)) static void nmi_ignore(void) {}
+
+/* Copies the character generator into RAM and adds the missing glyphs, in
+ * their normal and reverse video forms. */
+static void font_setup(void) {
+  uint16_t nmi;
   uint8_t port;
   const uint8_t *g;
 
   __asm__ volatile("sei");
+  nmi = NMI_VECTOR;
+  NMI_VECTOR = (uint16_t)nmi_ignore;
   port = CPU_PORT;
-  CPU_PORT = port & ~0x04; /* character ROM instead of I/O */
+  CPU_PORT = port & ~0x04;
   memcpy(MEM_FONT, CHARROM, FONT_SIZE);
   CPU_PORT = port;
+  NMI_VECTOR = nmi;
   __asm__ volatile("cli");
-  for (g = glyphs; *g; g += 9)
-    memcpy(MEM_FONT + ((uint16_t)*g << 3), g + 1, 8);
-  return MEM_FONT[(0x5c << 3) + 1] == 0x40;
+  for (g = glyphs; *g; g += 9) {
+    uint16_t off = (uint16_t)*g << 3;
+    uint8_t i;
+    for (i = 0; i < 8; i++) {
+      MEM_FONT[off + i] = g[1 + i];
+      MEM_FONT[off + REVERSED + i] = ~g[1 + i];
+    }
+  }
 }
 
-uint8_t scr_init(void) {
-  uint8_t ram = font_setup();
-  uint16_t font = ram ? (uint16_t)MEM_FONT : ROMFONT;
+void scr_init(void) {
   uint8_t r;
 
+  font_setup();
   for (r = 0; r < VT_ROWS; r++) {
     srow[r] = SCREEN + (uint16_t)r * VT_VIEW;
     crow[r] = COLRAM + (uint16_t)r * VT_VIEW;
@@ -88,13 +101,14 @@ uint8_t scr_init(void) {
   VIC_BORDER = VT_DEFBG;
   VIC_BG = VT_DEFBG;
   CIA2_PRA = (CIA2_PRA & 0xfc) | (3 - MEM_VICBANK);
-  VIC_ADDR = (((uint16_t)SCREEN >> 6) & 0xf0) | ((font >> 10) & 0x0e);
-  BLNSW = 1;     /* stop the KERNAL cursor */
+  VIC_ADDR =
+      (((uint16_t)SCREEN >> 6) & 0xf0) | (((uint16_t)MEM_FONT >> 10) & 0x0e);
+  BLNSW = 1; /* stop the KERNAL cursor */
+  shflag = SHFLAG;
   SHFLAG = 0x80; /* stop shift+Commodore switching the character set */
   memset(SCREEN, 0x20, VT_ROWS * VT_VIEW);
   memset(COLRAM, VT_DEFFG, VT_ROWS * VT_VIEW);
   vt_onscroll = scr_scroll;
-  return !ram;
 }
 
 void scr_done(void) {
@@ -105,6 +119,7 @@ void scr_done(void) {
   VIC_BORDER = 14;
   VIC_BG = 6;
   BLNSW = 0;
+  SHFLAG = shflag;
   memset((uint8_t *)0x0400, 0x20, VT_ROWS * VT_VIEW); /* the KERNAL screen */
   memset(COLRAM, 14, VT_ROWS * VT_VIEW);
 }

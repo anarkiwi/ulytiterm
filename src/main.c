@@ -87,8 +87,11 @@ static uint16_t parse_port(void) {
   uint16_t p = 0;
   const char *s = portstr;
 
-  while (*s >= '0' && *s <= '9')
+  while (*s >= '0' && *s <= '9') {
+    if (p > 6553)
+      return 23;
     p = p * 10 + (*s++ - '0');
+  }
   return p ? p : 23;
 }
 
@@ -176,11 +179,9 @@ static void session(void) {
 }
 
 int main(void) {
-  uint8_t romfont;
-
   reu_init();
-  romfont = scr_init();
-  vt_init(VT_VIEW, romfont);
+  scr_init();
+  vt_init(VT_VIEW);
   hist_init();
 
   while (connect_screen()) {

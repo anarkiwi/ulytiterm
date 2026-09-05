@@ -48,13 +48,6 @@ static const uint8_t gfx_exc[] = {
     0x75, 0x73, 0x76, 0x71, 0x77, 0x72, 0x78, 0x5d, 0x79, 0x77, 0x7a,
     0x78, 0x7b, 0x2a, 0x7c, 0x79, 0x7d, 0x1c, 0x7e, 0x7a, 0};
 
-/* Approximations for the glyphs that only exist in the patched RAM font. */
-static const uint8_t asc_rom[] = {0x5c, 0x2f, 0x5e, 0x1e, 0x60, 0x27, 0x7b,
-                                  0x28, 0x7d, 0x29, 0x7e, 0x2d, 0};
-static const uint8_t gfx_rom[] = {0x60, 0x2a, 0x66, 0x27, 0x67,
-                                  0x2b, 0x79, 0x3c, 0x7a, 0x3e,
-                                  0x7c, 0x3d, 0x7e, 0x2e, 0};
-
 static uint8_t asctab[256], gfxtab[256];
 static const uint8_t *lut;
 
@@ -105,9 +98,11 @@ static void mark(uint8_t a, uint8_t b) {
     vt_dirty[a++] = 1;
 }
 
+/* The full stride is cleared, not just the visible width: the scrollback
+ * stores whole rows, and the width can change under it. */
 static void clear_row(uint8_t r) {
-  memset(vt_chr[r], BLANK | rev, vt_cols);
-  memset(vt_att[r], att, vt_cols);
+  memset(vt_chr[r], BLANK | rev, VT_MAXCOLS);
+  memset(vt_att[r], att, VT_MAXCOLS);
 }
 
 /* Rotates rows [t, b] up (n > 0) or down (n < 0) by |n|, blanking what
@@ -305,7 +300,7 @@ void vt_setcols(uint8_t cols) {
   vt_reset();
 }
 
-void vt_init(uint8_t cols, uint8_t romfont) {
+void vt_init(uint8_t cols) {
   uint16_t i;
 
   for (i = 0; i < 256; i++) {
@@ -315,12 +310,8 @@ void vt_init(uint8_t cols, uint8_t romfont) {
                                                                     : BLANK;
   }
   apply(asctab, asc_exc);
-  if (romfont)
-    apply(asctab, asc_rom);
   memcpy(gfxtab, asctab, sizeof(gfxtab));
   apply(gfxtab, gfx_exc);
-  if (romfont)
-    apply(gfxtab, gfx_rom);
   vt_setcols(cols);
 }
 

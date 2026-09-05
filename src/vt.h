@@ -44,7 +44,7 @@ extern uint8_t vt_replylen;
 extern uint8_t (*vt_onscroll)(uint8_t t, uint8_t b, int8_t n);
 extern void (*vt_onscrollout)(uint8_t row);
 
-void vt_init(uint8_t cols, uint8_t romfont);
+void vt_init(uint8_t cols);
 void vt_reset(void);
 void vt_setcols(uint8_t cols);
 void vt_write(const uint8_t *p, uint16_t n);

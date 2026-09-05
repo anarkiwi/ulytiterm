@@ -99,6 +99,9 @@ static uint8_t cmd_run(void) {
     CONTROL = CTRL_DATA_ACC;
     if (!more)
       break;
+    /* The state still reads as a data state until the accept is retired. */
+    if (!wait_for(ST_DATA, 0))
+      return 0;
   }
   uii_status[slen] = 0;
   return 1;

@@ -398,7 +398,7 @@ static void t_kbd(void) {
 }
 
 int main(void) {
-  vt_init(VT_VIEW, 1);
+  vt_init(VT_VIEW);
   t_glyphs();
   t_c0();
   t_cursor();
