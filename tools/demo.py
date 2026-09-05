@@ -6,6 +6,7 @@ Run from the repository root after `make`:
 """
 
 import socket
+import struct
 import subprocess
 import sys
 import threading
@@ -22,6 +23,7 @@ from vice_driver import (  # noqa: E402
     chord_to_keys,
     text_to_chords,
 )
+from vice_driver.binmon import CHECK_LOAD, MEMSPACE_MAIN, OPCODE, TAP_MODE_FIXED  # noqa: E402
 from vice_driver.display import (  # noqa: E402
     parse_display_response,
     parse_palette_response,
@@ -41,8 +43,26 @@ def sgr(*n):
 SCRIPT = [
     "\r\n",
     sgr(1, 36) + GFX + "lqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqk" + ASCII + "\r\n",
-    GFX + "x" + ASCII + sgr(1, 37) + "     t h e   n i g h t   o w l      " + sgr(1, 36) + GFX + "x" + ASCII + "\r\n",
-    GFX + "x" + ASCII + sgr(36) + "      40 columns  ~  8 bits         " + sgr(1, 36) + GFX + "x" + ASCII + "\r\n",
+    GFX
+    + "x"
+    + ASCII
+    + sgr(1, 37)
+    + "     t h e   n i g h t   o w l      "
+    + sgr(1, 36)
+    + GFX
+    + "x"
+    + ASCII
+    + "\r\n",
+    GFX
+    + "x"
+    + ASCII
+    + sgr(36)
+    + "      40 columns  ~  8 bits         "
+    + sgr(1, 36)
+    + GFX
+    + "x"
+    + ASCII
+    + "\r\n",
     GFX + "mqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqj" + ASCII + sgr(0) + "\r\n",
     "\r\n",
     "".join(sgr(30 + c) + sgr(7) + "  " + sgr(0) for c in range(8)) + "\r\n",
@@ -65,6 +85,9 @@ IAC, SB, SE, WILL, DO = 255, 250, 240, 251, 253
 OPT_TTYPE, OPT_NAWS, OPT_SGA = 24, 31, 3
 
 
+ACIA_DATA = 0xDE00  # acia.c's REG_DATA, at the ACIA base
+
+
 class Bbs(threading.Thread):
     """Scripted BBS: negotiates telnet, then paints a screen a line at a time."""
 
@@ -74,11 +97,34 @@ class Bbs(threading.Thread):
         super().__init__()
         self.rx = bytearray()
         self.conn = None
+        self.bm = None  # set once the VICE binmon connection exists
+        self.bm_lock = threading.Lock()  # excludes the main thread's own bm calls (frame grabs)
+        self._checknum = None
+
+    def _checkpoint(self):
+        # CHECK_LOAD on $de00, armed once and left on -- toggling per-send races the vsync poll
+        if self._checknum is None:
+            body = struct.pack("<HHBBBBB", ACIA_DATA, ACIA_DATA, 1, 1, CHECK_LOAD, 0, MEMSPACE_MAIN)
+            resp = self.bm.call(OPCODE.CHECKPOINT_SET, body)
+            self._checknum = struct.unpack("<I", resp.body[:4])[0]
+        return self._checknum
 
     def send(self, text):
-        self.conn.sendall(text.encode("latin-1") if isinstance(text, str) else text)
+        # locked against the main thread's own bm calls, else a frame grab could steal our event
+        data = text.encode("latin-1") if isinstance(text, str) else text
+        with self.bm_lock:
+            checknum = self._checkpoint()
+            for byte in data:
+                self.conn.sendall(bytes([byte]))
+                self.bm.wait_for_checkpoint(checknum)
 
     def run(self):
+        try:
+            self._script()
+        except (OSError, RuntimeError, AttributeError, AssertionError):  # bm/socket torn down
+            pass
+
+    def _script(self):
         srv = socket.socket()
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind(("0.0.0.0", PORT))
@@ -132,7 +178,13 @@ def gateway():
 
 def container_ip(name):
     out = subprocess.run(
-        ["docker", "inspect", name, "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}"],
+        [
+            "docker",
+            "inspect",
+            name,
+            "-f",
+            "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
+        ],
         capture_output=True,
         text=True,
         check=True,
@@ -164,10 +216,22 @@ def main():
         mounts=[DiskMount("ulytiterm.d64", "/work/ulytiterm.d64", read_only=True)],
         warp=False,  # real time, so the capture looks like the real thing
         extra_args=[
-            "-reu", "-reusize", "16384",
-            "-acia1", "-acia1base", "0xde00", "-acia1irq", "0",
-            "-acia1mode", "1", "-myaciadev", "0",
-            "-rsdev1", f"{gateway()}:{PORT}", "-rsdev1baud", "38400",
+            "-reu",
+            "-reusize",
+            "16384",
+            "-acia1",
+            "-acia1base",
+            "0xde00",
+            "-acia1irq",
+            "0",
+            "-acia1mode",
+            "1",
+            "-myaciadev",
+            "0",
+            "-rsdev1",
+            f"{gateway()}:{PORT}",
+            "-rsdev1baud",
+            "38400",
         ],
     )
     frames = []
@@ -175,10 +239,12 @@ def main():
         bm = BinMon(container_ip(container.name), 6502)
         bm.connect(timeout=30.0, attempts=120, retry_delay=0.25)
         bm.exit()
+        bbs.bm = bm
         palette = parse_palette_response(bm.palette_get())
 
         def grab():
-            snap = parse_display_response(bm.display_get())
+            with bbs.bm_lock:
+                snap = parse_display_response(bm.display_get())
             frames.append((snap.debug_width, snap.debug_height, snap.bitmap))
 
         def wait(seconds, capture=True):
@@ -188,19 +254,29 @@ def main():
                     grab()
                 time.sleep(0.12)
 
+        def key(*names):
+            # OBSERVED (the default) can release before the KERNAL scan sees it, dropping the key
+            with bbs.bm_lock:
+                bm.keymatrix_tap(chord_to_keys(*names), mode=TAP_MODE_FIXED, frames=6)
+                deadline = time.time() + 5.0
+                while any(bm.keymatrix_get().keyarr):
+                    if time.time() > deadline:
+                        raise RuntimeError(f"key {names} never released")
+                    time.sleep(0.01)
+
         for _ in range(200):  # the connect screen
             if "host:" in screen_text(bm):
                 break
             time.sleep(0.5)
         wait(1.4)
         for _ in range(2):  # accept host, accept port
-            bm.keymatrix_tap(chord_to_keys("RETURN"), frames=6)
+            key("RETURN")
             wait(1.0)
         wait(11.0)
         for chord in text_to_chords("commodore"):  # log in
-            bm.keymatrix_tap(chord_to_keys(*chord), frames=6)
+            key(*chord)
             wait(0.3)
-        bm.keymatrix_tap(chord_to_keys("RETURN"), frames=6)
+        key("RETURN")
         wait(7.0)
         bm.close()
 
