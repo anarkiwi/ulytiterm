@@ -20,6 +20,7 @@ CLANG_FORMAT ?= $(DOCKER_RUN) --entrypoint clang-format $(MOS_IMAGE)
 # config, cache and state directories.
 C1541 ?= $(DOCKER_RUN) -e HOME=/tmp --entrypoint c1541 $(VICE_IMAGE)
 HOST_CC ?= cc
+PYTEST ?= python3 -m pytest -q
 
 all: $(NAME).d64 $(NAME).prg
 
@@ -37,6 +38,10 @@ $(NAME).d64: $(NAME).prg
 test: tests/run
 	./tests/run
 
+# Drives the disk image in VICE; needs a container runtime and vice-driver.
+integration: $(NAME).d64
+	$(PYTEST) tests/integration
+
 tests/run: tests/test.c $(CORE) $(HDRS) Makefile
 	$(HOST_CC) $(HOST_CFLAGS) -o $@ tests/test.c $(CORE)
 
@@ -46,4 +51,4 @@ format:
 clean:
 	rm -f $(NAME).prg $(NAME).d64 $(NAME).crt tests/run *.o *.elf
 
-.PHONY: all test format clean
+.PHONY: all test integration format clean

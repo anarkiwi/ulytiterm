@@ -31,7 +31,11 @@ static void xfer(uint8_t cmd, reu_addr ra, const void *ca, uint16_t len) {
   REU_LEN = len;
   REU_MASK = 0;
   REU_CTRL = 0;
+  /* The DMA reads and writes C64 memory behind the compiler's back, so
+   * pending stores must be committed before it and values reloaded after. */
+  __asm__ volatile("" ::: "memory");
   REU_CMD = CMD_EXEC | cmd;
+  __asm__ volatile("" ::: "memory");
 }
 
 void reu_stash(reu_addr dst, const void *src, uint16_t len) {

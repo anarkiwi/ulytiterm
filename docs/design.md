@@ -8,7 +8,9 @@
 | `src/telnet.c` | NVT option negotiation, hardware independent |
 | `src/kbd.c` | PETSCII to VT key sequences, hardware independent |
 | `src/screen.c` | VIC-II renderer, RAM character generator |
+| `src/net.c` | transport selection |
 | `src/uii.c` | Ultimate command interface, network target |
+| `src/acia.c` | 6551 ACIA (SwiftLink, Turbo232) modem line |
 | `src/reu.c` | REU DMA |
 | `src/hist.c` | scrollback in expansion RAM |
 | `src/main.c` | connect dialogue and session loop |

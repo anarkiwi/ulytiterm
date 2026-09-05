@@ -1,13 +1,23 @@
 # ulytiterm
 
-VT102/ANSI terminal for the Commodore 64, using the network interface of the
-Ultimate II+ or Ultimate 64 cartridge. The cartridge provides the TCP sockets,
-and its REU provides DMA screen scrolling and scrollback; both are required.
+VT102/ANSI terminal for the Commodore 64.
 
-Enable *Command Interface* and the RAM expansion in the cartridge settings.
-Startup checks for both, and for a network configuration, and exits to BASIC
-with a message saying what to enable if anything is missing. The cartridge's
-address, netmask and gateway are shown before the host prompt.
+Two transports, picked automatically at startup:
+
+- the **Ultimate II+ / Ultimate 64** command interface, which provides real TCP
+  sockets, so a host and port are dialled directly;
+- a **6551 ACIA** (SwiftLink or Turbo232) at $de00, which is a modem line: the
+  host and port become an `ATDT host:port` dial string, which is what the WiFi
+  modems in common use expect.
+
+A REU is required either way: it moves the screen with DMA and holds the
+scrollback. The Ultimate provides one; enable it, and the command interface,
+in the cartridge settings.
+
+Startup checks for a transport, for the REU, and for a network configuration,
+and exits to BASIC with a message saying what to enable if anything is
+missing. On the Ultimate the cartridge's address, netmask and gateway are
+shown before the host prompt.
 
 ## Build
 
@@ -18,6 +28,12 @@ a container runtime: the
 images. Set `MOS_CC` or `C1541` to use host installs instead.
 
 `make test` runs the terminal, telnet and keyboard unit tests on the host.
+
+`make integration` drives the built disk image inside VICE with
+[vice-driver](https://github.com/anarkiwi/vice-driver): a REU and an emulated
+SwiftLink wired to a scripted BBS on the host exercise everything except the
+Ultimate's own network commands, which need the cartridge. See
+[tests/integration](tests/integration).
 
 ## Use
 
