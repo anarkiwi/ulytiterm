@@ -2,6 +2,8 @@
 
 VT102/ANSI terminal for the Commodore 64.
 
+![dialling a BBS over the emulated ACIA](docs/demo.png)
+
 Two transports, picked automatically at startup:
 
 - the **Ultimate II+ / Ultimate 64** command interface, which provides real TCP
@@ -34,6 +36,9 @@ images. Set `MOS_CC` or `C1541` to use host installs instead.
 SwiftLink wired to a scripted BBS on the host exercise everything except the
 Ultimate's own network commands, which need the cartridge. See
 [tests/integration](tests/integration).
+
+`python3 tools/demo.py` drives the same setup to recapture the screenshot
+above as an animated PNG.
 
 ## Use
 
