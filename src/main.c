@@ -22,6 +22,7 @@ static int16_t sock = -1;
 static char host[HOST_MAX] = "bbs.fozztexx.com";
 static char portstr[6] = "23";
 static uint8_t txbuf[64];
+static uint8_t netinfo[UII_IPCONFIG_LEN];
 
 static void raw_send(const uint8_t *p, uint16_t n) {
   if (sock >= 0)
@@ -33,6 +34,27 @@ static void send_user(const uint8_t *p, uint16_t n) {
   uint16_t k = tn_encode(p, n, enc, sizeof(enc));
 
   raw_send(k ? enc : p, k ? k : n);
+}
+
+/* Checked before the screen is taken over, so that a failure can be reported
+ * on the BASIC screen and left there. Returns an error message, or 0. */
+static const char *preflight(void) {
+  const uint8_t *ip;
+
+  if (!uii_present())
+    return "ULTIMATE COMMAND INTERFACE NOT FOUND.\r"
+           "ENABLE IT UNDER THE CARTRIDGE SETTINGS.";
+  if (!reu_banks)
+    return "NO REU FOUND.\r"
+           "ENABLE THE RAM EXPANSION UNDER THE\rCARTRIDGE SETTINGS.";
+  ip = uii_ipconfig();
+  if (!ip)
+    return "THE CARTRIDGE REPORTED NO NETWORK\rCONFIGURATION.";
+  memcpy(netinfo, ip, sizeof(netinfo));
+  if (!netinfo[0])
+    return "NO IP ADDRESS.\r"
+           "CHECK THE NETWORK CABLE AND DHCP.";
+  return 0;
 }
 
 static void ui_num(uint32_t n) {
@@ -97,29 +119,21 @@ static uint16_t parse_port(void) {
 
 /* Returns 0 when the user asks to quit. */
 static uint8_t connect_screen(void) {
-  const uint8_t *ip;
+  static const char *const label[3] = {"address ", "netmask ", "gateway "};
+  uint8_t i;
 
   vt_puts("\033[2J\033[H\033[7m ulytiterm " VERSION " \033[m\r\n\r\n");
-  if (!uii_present()) {
-    vt_puts("\033[31mno ultimate command interface.\033[m\r\n"
-            "enable it in the cartridge settings.\r\n\r\n");
-  } else if ((ip = uii_ipconfig())) {
-    uint8_t i;
-    vt_puts("address ");
-    for (i = 0; i < 4; i++) {
-      ui_num(ip[i]);
-      vt_puts(i < 3 ? "." : "\r\n");
-    }
+  for (i = 0; i < UII_IPCONFIG_LEN; i++) {
+    if (!(i & 3))
+      vt_puts(label[i >> 2]);
+    ui_num(netinfo[i]);
+    vt_puts((i & 3) == 3 ? "\r\n" : ".");
   }
   vt_puts("reu     ");
-  if (reu_banks) {
-    ui_num((uint32_t)reu_banks << 6);
-    vt_puts("k, ");
-    ui_num(hist_max);
-    vt_puts(" line scrollback\r\n\r\n");
-  } else {
-    vt_puts("none\r\n\r\n");
-  }
+  ui_num((uint32_t)reu_banks << 6);
+  vt_puts("k, ");
+  ui_num(hist_max);
+  vt_puts(" line scrollback\r\n\r\n");
   vt_puts("f5 scrollback  f7 disconnect  f8 80 col\r\n"
           "\033[7mleft arrow\033[m is esc, \033[7mpound\033[m is "
           "backslash\r\n\r\n");
@@ -179,7 +193,17 @@ static void session(void) {
 }
 
 int main(void) {
+  const char *err;
+
   reu_init();
+  err = preflight();
+  if (err) {
+    cbm_k_chrout('\r');
+    while (*err)
+      cbm_k_chrout(*err++);
+    cbm_k_chrout('\r');
+    return 1;
+  }
   scr_init();
   vt_init(VT_VIEW);
   hist_init();

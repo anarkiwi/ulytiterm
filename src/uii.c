@@ -117,7 +117,7 @@ const uint8_t *uii_ipconfig(void) {
   CMDDATA = TARGET_NETWORK;
   CMDDATA = NET_GET_IPADDRESS;
   CMDDATA = 0; /* interface 0 */
-  if (!cmd_run() || !uii_ok() || resplen < 16)
+  if (!cmd_run() || !uii_ok() || resplen < UII_IPCONFIG_LEN)
     return 0;
   return resp;
 }

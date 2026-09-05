@@ -295,13 +295,14 @@ static void t_telnet(void) {
   static const char sb_ttype[] = {'\377', '\372', 24, 1, '\377', '\360'};
   static const char iaciac[] = {'a', '\377', '\377', 'b'};
   static const char half1[] = {'x', '\377', '\375'};
-  static const char half2[] = {24, 'y'};
+  static const char half2[] = {1, 'y'};
   uint8_t o[8];
 
   tn_start(2);
   check(tn_feed("hi", 2) == 2 && !tn_active, "auto mode waits for an IAC");
-  check(tn_feed(do_ttype, 3) == 0 && tn_active && cap_is("\377\373\030", 3),
-        "DO TTYPE answered WILL TTYPE");
+  check(tn_feed(do_ttype, 3) == 0 && tn_active &&
+            cap_is("\377\373\030\377\373\037", 6),
+        "the first IAC announces terminal type and window size");
 
   caplen = 0;
   check(tn_feed(sb_ttype, 6) == 0 &&
@@ -310,8 +311,14 @@ static void t_telnet(void) {
 
   caplen = 0;
   check(tn_feed("\377\375\037", 3) == 0 &&
-            cap_is("\377\373\037\377\372\037\000\050\000\031\377\360", 12),
-        "DO NAWS answered WILL NAWS plus the window size");
+            cap_is("\377\372\037\000\050\000\031\377\360", 9),
+        "DO NAWS reports 40 columns and needs no second WILL");
+
+  caplen = 0;
+  tn_resize(80);
+  check(cap_is("\377\372\037\000\120\000\031\377\360", 9),
+        "tn_resize reports the new width");
+  tn_resize(40);
 
   caplen = 0;
   check(tn_feed("\377\375\001", 3) == 0 && cap_is("\377\374\001", 3),
@@ -333,6 +340,11 @@ static void t_telnet(void) {
   check(tn_feed(do_ttype, 3) == 0 && !caplen,
         "a repeated request is not answered again");
 
+  caplen = 0;
+  tn_init(tn_cap, 1, 40);
+  check(cap_is("\377\373\030\377\373\037", 6),
+        "forced telnet announces without waiting");
+
   tn_start(1);
   check(tn_feed(iaciac, 4) == 3 && !memcmp(tbuf, "a\377b", 3),
         "tn_filter strips commands and unescapes IAC IAC");
@@ -340,7 +352,7 @@ static void t_telnet(void) {
   tn_start(1);
   check(tn_feed(half1, 3) == 1 && tbuf[0] == 'x' && !caplen,
         "a split command holds over");
-  check(tn_feed(half2, 2) == 1 && tbuf[0] == 'y' && cap_is("\377\373\030", 3),
+  check(tn_feed(half2, 2) == 1 && tbuf[0] == 'y' && cap_is("\377\374\001", 3),
         "a split command completes");
 
   tn_start(0);
