@@ -1,0 +1,25 @@
+name: release
+
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: build
+        run: |
+          ./build.sh
+      - name: upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ulytiterm.prg
+            ulytiterm.d64
