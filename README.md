@@ -35,7 +35,9 @@ images. Set `MOS_CC` or `C1541` to use host installs instead.
 [vice-driver](https://github.com/anarkiwi/vice-driver): a REU and an emulated
 SwiftLink wired to a scripted BBS on the host exercise everything except the
 Ultimate's own network commands, which need the cartridge. See
-[tests/integration](tests/integration).
+[tests/integration](tests/integration). Set `ULYTITERM_SERVER` to the
+address the emulator container should dial when the tests themselves run in a
+container.
 
 `python3 tools/demo.py` drives the same setup to recapture the screenshot
 above as an animated PNG.

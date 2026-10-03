@@ -96,7 +96,9 @@ def read_kernal(bm) -> str:
     """The BASIC screen at $0400, where a preflight failure is reported."""
     codes = bm.mem_get(KERNAL_BASE, KERNAL_BASE + CELLS - 1)
     lines = [
-        "".join(screencode_to_ascii(c) for c in codes[r * COLS : (r + 1) * COLS]).rstrip()
+        "".join(
+            screencode_to_ascii(c) for c in codes[r * COLS : (r + 1) * COLS]
+        ).rstrip()
         for r in range(ROWS)
     ]
     return "\n".join(line for line in lines if line)
