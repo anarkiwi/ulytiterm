@@ -42,9 +42,11 @@ absent cartridge cannot hang the terminal.
 | $10 | read socket (socket, length low, length high) |
 | $11 | write socket (socket, data) |
 
-A read replies with a 16 bit length followed by the payload. $ffff means
-nothing is pending; zero means the peer closed the connection. Command length
-delimits a write, so writes are binary safe.
+A read replies with a 16 bit length followed by the payload. The socket has a
+40ms receive timeout; a read that expires on an empty socket replies $ffff
+with status `02,NO DATA`, which is not an error. A peer that closed the
+connection gives a length of zero with status `01,CONNECTION CLOSED BY HOST`.
+Command length delimits a write, so writes are binary safe.
 
 The REU registers at $df00-$df0a sit in the same page and are unaffected: the
 command interface only masks the last four register mirrors.

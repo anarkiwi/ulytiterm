@@ -38,6 +38,37 @@ static void send_user(const uint8_t *p, uint16_t n) {
   raw_send(k ? enc : p, k ? k : n);
 }
 
+/* Writes n in decimal at d, returns the end. */
+static char *put_num(char *d, uint32_t n) {
+  char b[10];
+  uint8_t i = 0;
+
+  do {
+    b[i++] = '0' + n % 10;
+    n /= 10;
+  } while (n);
+  while (i)
+    *d++ = b[--i];
+  return d;
+}
+
+/* Writes the dotted quad at ip, NUL terminated. */
+static void put_ip(char *d, const uint8_t *ip) {
+  uint8_t i;
+
+  for (i = 0; i < 4; i++) {
+    d = put_num(d, ip[i]);
+    *d++ = i == 3 ? 0 : '.';
+  }
+}
+
+static void ui_num(uint32_t n) {
+  static char b[11];
+
+  *put_num(b, n) = 0;
+  vt_puts(b);
+}
+
 /* Checked before the screen is taken over, so that a failure can be reported
  * on the BASIC screen and left there. Returns an error message, or 0. */
 static const char *preflight(void) {
@@ -60,19 +91,9 @@ static const char *preflight(void) {
     return "NO IP ADDRESS.\r"
            "CHECK THE NETWORK CABLE AND DHCP.";
   haveip = 1;
+  if (netinfo[8])
+    put_ip(host, netinfo + 8); /* the gateway is the default host */
   return 0;
-}
-
-static void ui_num(uint32_t n) {
-  static char b[11];
-  uint8_t i = sizeof(b) - 1;
-
-  b[i] = 0;
-  do {
-    b[--i] = '0' + n % 10;
-    n /= 10;
-  } while (n);
-  vt_puts(b + i);
 }
 
 static uint8_t ui_key(void) {
@@ -132,11 +153,13 @@ static uint8_t connect_screen(void) {
   vt_puts("device  ");
   vt_puts(net->name);
   vt_puts("\r\n");
-  for (i = 0; haveip && i < UII_IPCONFIG_LEN; i++) {
-    if (!(i & 3))
-      vt_puts(label[i >> 2]);
-    ui_num(netinfo[i]);
-    vt_puts((i & 3) == 3 ? "\r\n" : ".");
+  for (i = 0; haveip && i < 3; i++) {
+    static char b[16];
+
+    put_ip(b, netinfo + 4 * i);
+    vt_puts(label[i]);
+    vt_puts(b);
+    vt_puts("\r\n");
   }
   vt_puts("reu     ");
   ui_num((uint32_t)reu_banks << 6);

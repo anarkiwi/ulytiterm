@@ -30,9 +30,8 @@ static int8_t uii_tx(const uint8_t *data, uint16_t len) {
 
 static const char *uii_last(void) { return uii_status; }
 
-static const net_driver uii_driver = {"ultimate", uii_ipconfig, uii_open,
-                                      uii_shut,   uii_rx,       uii_tx,
-                                      uii_last};
+static const net_driver uii_driver = {
+    "ultimate", uii_ipconfig, uii_open, uii_shut, uii_rx, uii_tx, uii_last};
 
 uint8_t net_init(void) {
   if (uii_present())

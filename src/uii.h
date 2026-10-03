@@ -30,6 +30,11 @@ void uii_close(uint8_t sock);
  * until the next call). Returns the count, 0 when nothing is pending, or
  * -1 when the connection is gone. */
 int16_t uii_read(uint8_t sock, uint8_t **data, uint16_t want);
+/* Interprets a read reply: the status text, then the reply bytes, a 16 bit
+ * length and the payload. The firmware answers a read that times out on an
+ * empty socket with status 02 (older firmware with 00 and a length of $ffff),
+ * and one on a socket the peer closed with status 01 and a length of zero. */
+int16_t uii_read_len(const char *status, const uint8_t *reply, uint16_t n);
 int8_t uii_write(uint8_t sock, const uint8_t *data, uint16_t len);
 
 #endif

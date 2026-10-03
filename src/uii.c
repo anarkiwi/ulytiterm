@@ -145,9 +145,22 @@ void uii_close(uint8_t sock) {
   cmd_run();
 }
 
-int16_t uii_read(uint8_t sock, uint8_t **data, uint16_t want) {
+int16_t uii_read_len(const char *status, const uint8_t *reply, uint16_t n) {
   uint16_t len;
 
+  if (status[0] == '0' && status[1] == '2')
+    return 0;
+  if (status[0] != '0' || status[1] != '0' || n < 2)
+    return -1;
+  len = reply[0] | ((uint16_t)reply[1] << 8);
+  if (len == 0xffff)
+    return 0;
+  if (!len)
+    return -1;
+  return len > n - 2 ? n - 2 : len;
+}
+
+int16_t uii_read(uint8_t sock, uint8_t **data, uint16_t want) {
   *data = resp + 2;
   if (want > READ_MAX)
     want = READ_MAX;
@@ -158,20 +171,9 @@ int16_t uii_read(uint8_t sock, uint8_t **data, uint16_t want) {
   CMDDATA = sock;
   CMDDATA = want & 0xff;
   CMDDATA = want >> 8;
-  if (!cmd_run() || !uii_ok())
+  if (!cmd_run())
     return -1;
-  if (resplen < 2)
-    return -1;
-  /* The firmware reports 0xffff when the socket is merely empty; a length of
-   * zero means the peer closed it. */
-  len = resp[0] | ((uint16_t)resp[1] << 8);
-  if (len == 0xffff)
-    return 0;
-  if (!len)
-    return -1;
-  if (len > resplen - 2)
-    len = resplen - 2;
-  return len;
+  return uii_read_len(uii_status, resp, resplen);
 }
 
 int8_t uii_write(uint8_t sock, const uint8_t *data, uint16_t len) {

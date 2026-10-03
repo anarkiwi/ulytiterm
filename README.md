@@ -19,7 +19,7 @@ in the cartridge settings.
 Startup checks for a transport, for the REU, and for a network configuration,
 and exits to BASIC with a message saying what to enable if anything is
 missing. On the Ultimate the cartridge's address, netmask and gateway are
-shown before the host prompt.
+shown before the host prompt, and the gateway is the default host.
 
 ## Build
 
