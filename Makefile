@@ -2,7 +2,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 NAME := ulytiterm
 SRCS := $(wildcard src/*.c)
 HDRS := $(wildcard src/*.h)
-CORE := src/vt.c src/telnet.c src/kbd.c
+CORE := src/vt.c src/telnet.c src/kbd.c src/uii.c
 
 CFLAGS := -Wall -Wextra -Werror -Os -fnonreentrant -flto -DVERSION=\"$(VERSION)\"
 HOST_CFLAGS := -Wall -Wextra -Werror -O1 -DULYTITERM_HOST -Isrc

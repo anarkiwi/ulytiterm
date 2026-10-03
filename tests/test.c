@@ -4,6 +4,7 @@
 
 #include "kbd.h"
 #include "telnet.h"
+#include "uii.h"
 #include "vt.h"
 
 static int total, failed;
@@ -409,6 +410,24 @@ static void t_kbd(void) {
   check(key_is(0x5c, "\\", 1), "pound sends backslash");
 }
 
+static void t_uii(void) {
+  static const uint8_t data[] = {5, 0, 'h', 'e', 'l', 'l', 'o'};
+  static const uint8_t empty[] = {0xff, 0xff};
+  static const uint8_t closed[] = {0, 0};
+
+  check(uii_read_len("00,OK", data, sizeof(data)) == 5, "read payload");
+  check(uii_read_len("00,OK", data, 4) == 2, "read clamped to the reply");
+  check(uii_read_len("02,NO DATA: 11", empty, 2) == 0,
+        "read timeout is not a disconnect");
+  check(uii_read_len("00,OK", empty, 2) == 0, "read of $ffff is empty");
+  check(uii_read_len("01,CONNECTION CLOSED BY HOST", closed, 2) < 0,
+        "read on a closed socket");
+  check(uii_read_len("00,OK", closed, 2) < 0, "zero length read is closed");
+  check(uii_read_len("00,OK", data, 1) < 0, "short reply");
+  check(uii_read_len("86,INTERNAL ERROR", data, sizeof(data)) < 0,
+        "error status");
+}
+
 int main(void) {
   vt_init(VT_VIEW);
   t_glyphs();
@@ -424,6 +443,7 @@ int main(void) {
   t_hooks();
   t_telnet();
   t_kbd();
+  t_uii();
   printf("%d tests, %d failed\n", total, failed);
   return failed != 0;
 }

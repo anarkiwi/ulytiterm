@@ -88,8 +88,9 @@ static int16_t acia_read(uint8_t **data, uint16_t want) {
   return n;
 }
 
-static const char *acia_status(void) { return "THE LINE DID NOT ACCEPT THE DIAL STRING"; }
+static const char *acia_status(void) {
+  return "THE LINE DID NOT ACCEPT THE DIAL STRING";
+}
 
-const net_driver acia_driver = {"swiftlink", 0,          acia_open,
-                                acia_close, acia_read,   acia_write,
-                                acia_status};
+const net_driver acia_driver = {"swiftlink", 0,          acia_open,  acia_close,
+                                acia_read,   acia_write, acia_status};

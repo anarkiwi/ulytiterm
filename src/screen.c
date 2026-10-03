@@ -4,7 +4,8 @@
  * lacks (backslash, braces, tilde and the DEC graphics extras) can be added;
  * vt.c addresses them by screen code. Rows are painted only when dirty, and
  * scrolling is handed to the REU, which moves the visible image with DMA
- * instead of repainting every row.
+ * instead of repainting every row. The cursor blinks from the system IRQ, so
+ * its pace does not depend on how often the main loop gets to paint.
  */
 #include <string.h>
 
@@ -25,16 +26,58 @@
 #define COLRAM ((uint8_t *)0xd800)
 #define CHARROM ((const uint8_t *)0xd800) /* lower case set, I/O banked out */
 #define NMI_VECTOR (*(volatile uint16_t *)0x0318)
+#define IRQ_VECTOR (*(volatile uint16_t *)0x0314)
 /* Screen codes $80 and up are the reversed glyphs, one kilobyte on. */
 #define REVERSED 0x400
 
 #define FONT_SIZE 2048
+#define BLINK_JIFFIES 16
+#define STR(x) STR_(x)
+#define STR_(x) #x
+
+/* Runs ahead of the KERNAL IRQ handler. Every BLINK_JIFFIES it flips
+ * scr_phase and, when scr_cur is set, the reverse bit of the cell it points
+ * at, so the cell shows the cursor exactly when scr_phase is set. The cell
+ * address is patched into the load and store. */
+__asm__(".section .text.scr_irq,\"ax\",@progbits\n"
+        "scr_irq:\n"
+        "  dec scr_blink\n"
+        "  bne 1f\n"
+        "  lda #" STR(BLINK_JIFFIES) "\n"
+                                     "  sta scr_blink\n"
+                                     "  lda scr_phase\n"
+                                     "  eor #0x80\n"
+                                     "  sta scr_phase\n"
+                                     "  lda scr_cur+1\n"
+                                     "  beq 1f\n"
+                                     "  sta 2f+2\n"
+                                     "  sta 3f+2\n"
+                                     "  lda scr_cur\n"
+                                     "  sta 2f+1\n"
+                                     "  sta 3f+1\n"
+                                     "2:\n"
+                                     "  lda 0xffff\n"
+                                     "  eor #0x80\n"
+                                     "3:\n"
+                                     "  sta 0xffff\n"
+                                     "1:\n"
+                                     "  jmp (scr_chain)\n"
+                                     ".section .bss.scr_irq,\"aw\",@nobits\n"
+                                     "scr_cur: .zero 2\n"
+                                     "scr_chain: .zero 2\n"
+                                     "scr_blink: .zero 1\n"
+                                     "scr_phase: .zero 1\n");
+
+void scr_irq(void);
+extern uint8_t *volatile scr_cur;
+extern uint16_t scr_chain;
+extern volatile uint8_t scr_blink, scr_phase;
 
 uint8_t scr_pan;
 
 static uint8_t *srow[VT_ROWS];
 static uint8_t *crow[VT_ROWS];
-static uint8_t curdrawn = 0xff;
+static uint8_t currow;
 static uint8_t shflag;
 static uint8_t colorpainted;
 static uint8_t bellend;
@@ -58,6 +101,18 @@ static const uint8_t glyphs[] = {
 
 static uint8_t scr_scroll(uint8_t t, uint8_t b, int8_t n);
 static void paint(uint8_t cursor);
+
+/* Moves the cursor to cell p, or removes it when p is 0, keeping the blink
+ * phase. */
+static void cur_set(uint8_t *p) {
+  __asm__ volatile("sei" ::: "memory");
+  if (scr_cur && scr_phase)
+    *scr_cur ^= 0x80;
+  scr_cur = p;
+  if (p && scr_phase)
+    *p ^= 0x80;
+  __asm__ volatile("cli" ::: "memory");
+}
 
 /* The character ROM replaces I/O while it is being copied, so the KERNAL NMI
  * handler must not run: it reads CIA 2. RESTORE is edge triggered and needs no
@@ -104,6 +159,11 @@ void scr_init(void) {
   VIC_ADDR =
       (((uint16_t)SCREEN >> 6) & 0xf0) | (((uint16_t)MEM_FONT >> 10) & 0x0e);
   BLNSW = 1; /* stop the KERNAL cursor */
+  __asm__ volatile("sei");
+  scr_blink = BLINK_JIFFIES;
+  scr_chain = IRQ_VECTOR;
+  IRQ_VECTOR = (uint16_t)scr_irq;
+  __asm__ volatile("cli");
   shflag = SHFLAG;
   SHFLAG = 0x80; /* stop shift+Commodore switching the character set */
   memset(SCREEN, 0x20, VT_ROWS * VT_VIEW);
@@ -112,6 +172,10 @@ void scr_init(void) {
 }
 
 void scr_done(void) {
+  cur_set(0);
+  __asm__ volatile("sei");
+  IRQ_VECTOR = scr_chain;
+  __asm__ volatile("cli");
   vt_onscroll = 0;
   vt_onscrollout = 0;
   CIA2_PRA |= 0x03;
@@ -147,17 +211,19 @@ static void autopan(void) {
 }
 
 static void paint(uint8_t cursor) {
-  uint8_t r;
+  uint8_t r, x;
+  uint8_t *want = 0;
 
   if (vt_colored && !colorpainted) {
     colorpainted = 1;
     scr_repaint();
   }
-  if (curdrawn != 0xff) {
-    vt_dirty[curdrawn] = 1;
-    curdrawn = 0xff;
-  }
   autopan();
+  x = vt_x - scr_pan;
+  if (cursor && vt_curvis && vt_x >= scr_pan && x < VT_VIEW)
+    want = srow[vt_y] + x;
+  if (scr_cur && (scr_cur != want || vt_dirty[currow]))
+    cur_set(0);
   for (r = 0; r < VT_ROWS; r++) {
     const uint8_t *src;
     if (!vt_dirty[r])
@@ -174,12 +240,9 @@ static void paint(uint8_t cursor) {
     if (colorpainted)
       memcpy(crow[r], vt_att[r] + scr_pan, VT_VIEW);
   }
-  if (cursor && vt_curvis && (JIFFY & 0x10)) {
-    uint8_t x = vt_x - scr_pan;
-    if (vt_x >= scr_pan && x < VT_VIEW) {
-      srow[vt_y][x] ^= 0x80;
-      curdrawn = vt_y;
-    }
+  if (want != scr_cur) {
+    currow = vt_y;
+    cur_set(want);
   }
 }
 

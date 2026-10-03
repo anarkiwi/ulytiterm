@@ -45,9 +45,14 @@ def _docker(*args: str) -> str:
 
 
 def _gateway() -> str:
-    """Address the container reaches a host listener on."""
+    """Address the container reaches a host listener on. ULYTITERM_SERVER
+    overrides it, e.g. when the tests themselves run in a container."""
+    if os.environ.get("ULYTITERM_SERVER"):
+        return os.environ["ULYTITERM_SERVER"]
     try:
-        gw = _docker("network", "inspect", "bridge", "-f", "{{(index .IPAM.Config 0).Gateway}}")
+        gw = _docker(
+            "network", "inspect", "bridge", "-f", "{{(index .IPAM.Config 0).Gateway}}"
+        )
     except (subprocess.CalledProcessError, OSError):
         return GATEWAY_FALLBACK
     return gw or GATEWAY_FALLBACK
@@ -106,7 +111,9 @@ class Term:
             time.sleep(0.1)
 
     def key(self, *names: str) -> None:
-        self.bm.keymatrix_tap(chord_to_keys(*names), mode=TAP_MODE_FIXED, frames=TAP_FRAMES)
+        self.bm.keymatrix_tap(
+            chord_to_keys(*names), mode=TAP_MODE_FIXED, frames=TAP_FRAMES
+        )
         deadline = time.monotonic() + 5.0
         while any(self.bm.keymatrix_get().keyarr):
             if time.monotonic() > deadline:
@@ -122,7 +129,9 @@ class Term:
         reused: it halts the CPU the instant acia_read() consumes a received
         byte, giving a real event to pace sends on."""
         if self._acia_checknum is None:
-            body = struct.pack("<HHBBBBB", ACIA_DATA, ACIA_DATA, 1, 0, CHECK_LOAD, 0, MEMSPACE_MAIN)
+            body = struct.pack(
+                "<HHBBBBB", ACIA_DATA, ACIA_DATA, 1, 0, CHECK_LOAD, 0, MEMSPACE_MAIN
+            )
             resp = self.bm.call(OPCODE.CHECKPOINT_SET, body)
             self._acia_checknum = struct.unpack("<I", resp.body[:4])[0]
         return self._acia_checknum
@@ -219,7 +228,9 @@ def test_telnet_negotiation(term):
         bytes([IAC, SB, OPT_NAWS, 0, 40, 0, 25, IAC, SE]),
         bytes([IAC, DO, OPT_SGA]),
     ]
-    term.server.wait(mark, lambda b: all(w in b for w in want), "the negotiation replies")
+    term.server.wait(
+        mark, lambda b: all(w in b for w in want), "the negotiation replies"
+    )
 
     mark = term.server.mark()
     term.send(bytes([IAC, SB, OPT_TTYPE, SUB_SEND, IAC, SE]))
@@ -248,18 +259,31 @@ def test_text_and_ansi(term):
 
 def test_dec_special_graphics(term):
     term.send(b"\x1b[2J\x1b[H\x1b(0lqk\r\nx x\r\nmqj\r\n\x1b(Babc\r\n")
-    snap = term.wait_screen(lambda s: s.row(3).startswith("abc"), "the box and the ascii row")
-    assert [snap.code(0, c) for c in range(3)] == [scr.GFX_UL, scr.GFX_HORIZ, scr.GFX_UR]
+    snap = term.wait_screen(
+        lambda s: s.row(3).startswith("abc"), "the box and the ascii row"
+    )
+    assert [snap.code(0, c) for c in range(3)] == [
+        scr.GFX_UL,
+        scr.GFX_HORIZ,
+        scr.GFX_UR,
+    ]
     assert [snap.code(1, c) for c in range(3)] == [scr.GFX_VERT, 0x20, scr.GFX_VERT]
-    assert [snap.code(2, c) for c in range(3)] == [scr.GFX_LL, scr.GFX_HORIZ, scr.GFX_LR]
+    assert [snap.code(2, c) for c in range(3)] == [
+        scr.GFX_LL,
+        scr.GFX_HORIZ,
+        scr.GFX_LR,
+    ]
     assert [snap.code(3, c) for c in range(3)] == [0x01, 0x02, 0x03]
 
 
 def test_scroll(term):
     lines = 40
-    term.send(b"\x1b[2J\x1b[H" + b"".join(b"line %d\r\n" % n for n in range(1, lines + 1)))
+    term.send(
+        b"\x1b[2J\x1b[H" + b"".join(b"line %d\r\n" % n for n in range(1, lines + 1))
+    )
     snap = term.wait_screen(
-        lambda s: s.row(scr.ROWS - 2).startswith("line %d" % lines), "the last line to scroll in"
+        lambda s: s.row(scr.ROWS - 2).startswith("line %d" % lines),
+        "the last line to scroll in",
     )
     first = lines - (scr.ROWS - 1) + 1
     got = [snap.row(r).rstrip() for r in range(scr.ROWS - 1)]
@@ -272,7 +296,9 @@ def test_keyboard(term):
     term.server.wait(mark, lambda b: b == b"hello", "the typed text")
     mark = term.server.mark()
     term.key("RETURN")
-    term.server.wait(mark, lambda b: b == b"\r\x00", "carriage return with the telnet NUL")
+    term.server.wait(
+        mark, lambda b: b == b"\r\x00", "carriage return with the telnet NUL"
+    )
 
 
 def test_scrollback(term):
@@ -280,7 +306,8 @@ def test_scrollback(term):
     scrolled = "line %d" % (40 - (scr.ROWS - 1))
     term.key("F5")
     back = term.wait_screen(
-        lambda s: s.row(0).startswith(scrolled) and s.row(scr.ROWS - 1).startswith("scrollback"),
+        lambda s: s.row(0).startswith(scrolled)
+        and s.row(scr.ROWS - 1).startswith("scrollback"),
         "the scrolled off line and its status row",
     )
     assert back.row(scr.ROWS - 1).startswith("scrollback")
